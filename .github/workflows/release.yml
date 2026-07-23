@@ -1,0 +1,91 @@
+# Release pipeline: push a tag `v*` and this builds the DMG, attaches it to a GitHub
+# Release, and (if TAP_PUSH_TOKEN is set) bumps the Homebrew cask in
+# felixgollnhuber/homebrew-tap so `brew upgrade` picks the new version up.
+#
+# Security note: no untrusted event input (titles, bodies, branch names) is ever
+# interpolated into run: scripts; secrets flow in via env only. GITHUB_REF_NAME is
+# the maintainer-pushed tag.
+#
+# Optional secrets — without them the DMG is ad-hoc signed (users need
+# right-click > Open or `--no-quarantine`); with them it is Developer-ID signed
+# and notarized:
+#   MACOS_CERT_P12        base64 of the "Developer ID Application" .p12
+#   MACOS_CERT_PASSWORD   password of that .p12
+#   TEAM_ID               Apple Developer team id
+#   NOTARY_APPLE_ID       Apple ID for notarytool
+#   NOTARY_PASSWORD       app-specific password for notarytool
+#   TAP_PUSH_TOKEN        fine-grained PAT with push access to homebrew-tap
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Import signing certificate (if configured)
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          if [ -z "$MACOS_CERT_P12" ]; then
+            echo "No signing certificate configured — building an ad-hoc DMG."
+            exit 0
+          fi
+          KEYCHAIN=build.keychain
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security default-keychain -s "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          echo "$MACOS_CERT_P12" | base64 --decode > cert.p12
+          security import cert.p12 -k "$KEYCHAIN" -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+          rm cert.p12
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+
+      - name: Build DMG
+        env:
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+          NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
+          NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+        run: |
+          # No notarization credentials -> skip that step (the DMG still builds).
+          if [ -z "$NOTARY_APPLE_ID" ]; then export SKIP_NOTARIZE=1; fi
+          ./build.sh --dmg
+
+      - name: Checksum
+        id: sha
+        run: echo "sha256=$(shasum -a 256 build/CodexStatusBar.dmg | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/CodexStatusBar.dmg
+          generate_release_notes: true
+
+      - name: Bump Homebrew tap (if configured)
+        env:
+          TAP_PUSH_TOKEN: ${{ secrets.TAP_PUSH_TOKEN }}
+          SHA256: ${{ steps.sha.outputs.sha256 }}
+        run: |
+          if [ -z "$TAP_PUSH_TOKEN" ]; then
+            echo "No TAP_PUSH_TOKEN — skipping tap bump."
+            exit 0
+          fi
+          VERSION="${GITHUB_REF_NAME#v}"
+          git clone "https://x-access-token:${TAP_PUSH_TOKEN}@github.com/felixgollnhuber/homebrew-tap.git" tap
+          mkdir -p tap/Casks
+          sed -e "s/{{VERSION}}/${VERSION}/" -e "s/{{SHA256}}/${SHA256}/" \
+            packaging/homebrew/codex-status-bar.rb.tmpl > tap/Casks/codex-status-bar.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/codex-status-bar.rb
+          git commit -m "codex-status-bar ${VERSION}"
+          git push

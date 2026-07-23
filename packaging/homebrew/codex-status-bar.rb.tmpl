@@ -1,0 +1,23 @@
+cask "codex-status-bar" do
+  version "{{VERSION}}"
+  sha256 "{{SHA256}}"
+
+  url "https://github.com/felixgollnhuber/codex-status-bar/releases/download/v#{version}/CodexStatusBar.dmg"
+  name "Codex Status Bar"
+  desc "Menu bar app showing Codex's live session status"
+  homepage "https://github.com/felixgollnhuber/codex-status-bar"
+
+  depends_on macos: ">= :monterey"
+
+  app "Codex Status Bar.app"
+
+  uninstall quit: "com.local.codexstatusbar"
+
+  # Full cleanup (hooks + trust entries) is `node ".../Resources/uninstall.js"` BEFORE
+  # `brew uninstall --zap` (the script lives inside the app bundle); zap removes what
+  # remains on disk afterwards.
+  zap trash: [
+    "~/.codex/statusbar",
+    "~/Library/Preferences/com.local.codexstatusbar.plist",
+  ]
+end

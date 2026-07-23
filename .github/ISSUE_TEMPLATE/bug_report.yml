@@ -1,5 +1,5 @@
 name: 🐛 Bug Report
-description: Report a bug or unexpected behavior in Claude Status Bar
+description: Report a bug or unexpected behavior in Codex Status Bar
 title: "[BUG] "
 labels: ["bug"]
 body:
@@ -9,11 +9,9 @@ body:
         Thank you for taking the time to report a bug. Please fill out the sections below to help us understand and fix the issue.
 
         **Before submitting, please check:**
-        - You're using the [latest version](https://github.com/m1ckc3s/claude-status-bar/releases/latest)
-        - This issue hasn't already been reported by searching [existing issues](https://github.com/m1ckc3s/claude-status-bar/issues)
+        - You're using the [latest version](https://github.com/felixgollnhuber/codex-status-bar/releases/latest)
+        - This issue hasn't already been reported by searching [existing issues](https://github.com/felixgollnhuber/codex-status-bar/issues)
         - This is a bug, not a feature request or support question
-
-        Are you having trouble with brew? See the [Homebrew guide](https://github.com/m1ckc3s/claude-status-bar/blob/main/HOMEBREW.md).
 
   - type: checkboxes
     id: preflight
@@ -21,13 +19,15 @@ body:
       label: Preflight Checklist
       description: Please confirm before submitting
       options:
-        - label: I have searched [existing issues](https://github.com/m1ckc3s/claude-status-bar/issues) and [known issues](https://github.com/m1ckc3s/claude-status-bar/issues/22) and this hasn't been reported yet
+        - label: I have searched [existing issues](https://github.com/felixgollnhuber/codex-status-bar/issues) and this hasn't been reported yet
           required: true
-        - label: I have checked the [Troubleshooting guide](https://github.com/m1ckc3s/claude-status-bar/blob/main/TROUBLESHOOTING.md) and my issue isn't covered there
+        - label: I have checked the [Troubleshooting guide](https://github.com/felixgollnhuber/codex-status-bar/blob/main/TROUBLESHOOTING.md) and my issue isn't covered there
           required: true
         - label: This is a single bug report (please file separate reports for different bugs)
           required: true
         - label: I have Node.js installed (`node -v` prints a version)
+          required: true
+        - label: My Codex CLI is 0.145 or newer (`codex --version`)
           required: true
 
   - type: textarea
@@ -53,10 +53,10 @@ body:
     attributes:
       label: Steps to Reproduce
       placeholder: |
-        1. Open the Claude desktop app (or start a new session in the terminal)
-        2. Start a Claude session and write a prompt
+        1. Start a new Codex session in the terminal (or the desktop app)
+        2. Write a prompt
         3. The menu bar icon shows
-        4. The icon disappears while the terminal is still active
+        4. The icon disappears while the session is still active
     validations:
       required: true
 
@@ -64,19 +64,17 @@ body:
     id: app-version
     attributes:
       label: App version
-      description: Shown at the bottom of the menu bar dropdown (e.g. Version 0.4.0)
-      placeholder: e.g. 0.4.0
+      description: Shown at the bottom of the menu bar dropdown (e.g. Version 0.1.0)
+      placeholder: e.g. 0.1.0
     validations:
       required: true
 
-  - type: dropdown
-    id: install-method
+  - type: input
+    id: codex-version
     attributes:
-      label: How did you install it?
-      options:
-        - Homebrew (brew install)
-        - DMG (downloaded from Releases)
-        - Not sure
+      label: Codex version
+      description: Output of `codex --version`
+      placeholder: e.g. codex-cli 0.145.0
     validations:
       required: true
 
@@ -94,8 +92,10 @@ body:
     attributes:
       label: Where are you encountering this bug?
       options:
-        - Claude Code app
         - In the terminal (CLI)
+        - codex exec (non-interactive)
+        - Codex Desktop app
+        - VS Code / editor extension
     validations:
       required: true
 
@@ -103,8 +103,8 @@ body:
     id: terminal
     attributes:
       label: Terminal / shell
-      description: If you're in the terminal, which one are you using?
-      placeholder: e.g. Terminal.app, iTerm2, Ghostty, Warp
+      description: If you're in the terminal, which one are you using (and which shell)?
+      placeholder: e.g. Terminal.app + zsh, iTerm2 + fish, Ghostty, Warp
     validations:
       required: false
 
@@ -112,7 +112,7 @@ body:
     id: context
     attributes:
       label: Additional Context
-      description: Anything else worth adding? Optional.
+      description: Anything else worth adding? Optional. `CODEX_STATUSBAR_DEBUG=1` output from `~/.codex/statusbar/hooks.log` helps a lot.
       placeholder: Any other context, or let me know if you're happy to open a PR.
     validations:
       required: false
