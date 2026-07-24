@@ -56,13 +56,14 @@ cp assets/completion.mp3 "$APP/Contents/Resources/completion.mp3"
 #          --apple-id you@example.com --team-id <TEAM_ID> --password <app-specific-password>
 # Then `TEAM_ID=<id> ./build.sh --dmg` auto-signs + notarizes. Without a cert it falls back
 # to an ad-hoc dev build (runnable locally; users would need right-click > Open once).
-# CI: instead of the keychain profile, set NOTARY_APPLE_ID / NOTARY_PASSWORD (app-specific)
-# and TEAM_ID as secrets — notarytool then authenticates from the environment.
-TEAM_ID="${TEAM_ID:-}"
+# CI: instead of the keychain profile, provide an App Store Connect API key via
+# NOTARY_KEY_FILE (path to the .p8) + NOTARY_KEY_ID + NOTARY_ISSUER_ID — no Apple ID
+# password anywhere in the pipeline.
+TEAM_ID="${TEAM_ID:-89GFUZY5U2}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-codex-statusbar}"
 notary_submit() {
-  if [[ -n "${NOTARY_APPLE_ID:-}" && -n "${NOTARY_PASSWORD:-}" ]]; then
-    xcrun notarytool submit "$1" --apple-id "$NOTARY_APPLE_ID" --team-id "$TEAM_ID" --password "$NOTARY_PASSWORD" --wait
+  if [[ -n "${NOTARY_KEY_FILE:-}" && -n "${NOTARY_KEY_ID:-}" && -n "${NOTARY_ISSUER_ID:-}" ]]; then
+    xcrun notarytool submit "$1" --key "$NOTARY_KEY_FILE" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" --wait
   else
     xcrun notarytool submit "$1" --keychain-profile "$NOTARY_PROFILE" --wait
   fi

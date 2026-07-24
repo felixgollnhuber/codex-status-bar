@@ -8,12 +8,13 @@
 #
 # Optional secrets — without them the DMG is ad-hoc signed (users need
 # right-click > Open or `--no-quarantine`); with them it is Developer-ID signed
-# and notarized:
+# and notarized via an App Store Connect API key (no Apple ID password anywhere):
 #   MACOS_CERT_P12        base64 of the "Developer ID Application" .p12
 #   MACOS_CERT_PASSWORD   password of that .p12
 #   TEAM_ID               Apple Developer team id
-#   NOTARY_APPLE_ID       Apple ID for notarytool
-#   NOTARY_PASSWORD       app-specific password for notarytool
+#   NOTARY_KEY_P8         contents of the App Store Connect API key (.p8)
+#   NOTARY_KEY_ID         its key id
+#   NOTARY_ISSUER_ID      the issuer id shown on the API keys page
 #   TAP_PUSH_TOKEN        fine-grained PAT with push access to homebrew-tap
 name: Release
 
@@ -52,12 +53,19 @@ jobs:
       - name: Build DMG
         env:
           TEAM_ID: ${{ secrets.TEAM_ID }}
-          NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
-          NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+          NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
         run: |
           # No notarization credentials -> skip that step (the DMG still builds).
-          if [ -z "$NOTARY_APPLE_ID" ]; then export SKIP_NOTARIZE=1; fi
+          if [ -z "$NOTARY_KEY_P8" ]; then
+            export SKIP_NOTARIZE=1
+          else
+            export NOTARY_KEY_FILE="$RUNNER_TEMP/notary-key.p8"
+            printf '%s' "$NOTARY_KEY_P8" > "$NOTARY_KEY_FILE"
+          fi
           ./build.sh --dmg
+          rm -f "${NOTARY_KEY_FILE:-}"
 
       - name: Checksum
         id: sha
