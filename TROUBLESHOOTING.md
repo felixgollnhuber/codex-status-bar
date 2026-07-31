@@ -16,6 +16,8 @@
   `node "/Applications/Codex Status Bar.app/Contents/Resources/install.js"`
 - Debug what the hooks see: run a session with `CODEX_STATUSBAR_DEBUG=1` in the environment and check `~/.codex/statusbar/hooks.log`.
 
+**Icon vanished after a Node upgrade?** The hooks need a Node binary, and the installer wires them to a path that survives upgrades (the Homebrew/Volta/asdf/mise symlink, never the versioned one behind it), falling back to resolving `node` in your login shell. If your setup defeats both — say you removed the Node your hooks point at — the app notices the dead path the next time it starts and reinstalls the hooks itself; launching it once from Applications is enough.
+
 **Hooks listed as untrusted in Codex?** If you edit the hook commands in `~/.codex/hooks.json` by hand, their `trusted_hash` no longer matches and Codex silently stops running them. Re-run the installer (it recomputes the hashes), or approve them in Codex's hooks review.
 
 **Seeing 2 icons?** If you also run a Codex usage app (e.g. CodexBar), that's a different app with a different job — usage and quotas there, live session status here. They coexist fine.

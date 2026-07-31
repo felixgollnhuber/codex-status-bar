@@ -504,15 +504,19 @@ final class StatusController: NSObject, NSMenuDelegate {
     }
 
     // `/bin/zsh -lc node` saw only the login PATH, missing nvm/fnm set in .zshrc.
+    // Keep the stable candidates in sync with STABLE_NODES in hooks/install.js.
     static func locateNode() -> String? {
         let fm = FileManager.default
         let home = NSHomeDirectory()
         var candidates = [
             "/opt/homebrew/bin/node",
             "/usr/local/bin/node",
+            "/opt/local/bin/node",
             "/usr/bin/node",
             "\(home)/.volta/bin/node",
             "\(home)/.asdf/shims/node",
+            "\(home)/.local/share/mise/shims/node",
+            "\(home)/.nix-profile/bin/node",
         ]
         let nvmDir = "\(home)/.nvm/versions/node"
         if let versions = try? fm.contentsOfDirectory(atPath: nvmDir) {
@@ -520,9 +524,13 @@ final class StatusController: NSObject, NSMenuDelegate {
         }
         for path in candidates where fm.isExecutableFile(atPath: path) && nodeWorks(path) { return path }
 
-        for args in [["-ilc", "command -v node"], ["-lc", "command -v node"]] {
+        // The user's own shell first (a GUI launch may not carry SHELL — then zsh only).
+        var shells = ["/bin/zsh"]
+        if let s = ProcessInfo.processInfo.environment["SHELL"], s != "/bin/zsh",
+           fm.isExecutableFile(atPath: s) { shells.insert(s, at: 0) }
+        for (shell, args) in shells.flatMap({ s in [["-ilc", "command -v node"], ["-lc", "command -v node"]].map { (s, $0) } }) {
             let p = Process()
-            p.executableURL = URL(fileURLWithPath: "/bin/zsh")
+            p.executableURL = URL(fileURLWithPath: shell)
             p.arguments = args
             let pipe = Pipe()
             p.standardOutput = pipe

@@ -8,7 +8,7 @@ cd "$(dirname "$0")"
 # and opens by bundle id, and every pkill/dev instruction relies on it.
 APP="build/Codex Status Bar.app"
 BIN="$APP/Contents/MacOS/CodexStatusBar"
-VERSION="0.1.0"
+VERSION="0.1.1"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"

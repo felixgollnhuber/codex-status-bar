@@ -27,7 +27,12 @@ const LABELS = {
 };
 
 const isPlainObject = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
-const isOurHandler = (h) => isPlainObject(h) && typeof h.command === "string" && h.command.includes(MARKER);
+// Mirrors install.js: a quote inside the home path splits MARKER across the `'\''`
+// escape in the installed command, so match the quoted form up to that break too.
+const shellQuote = (v) => `'${v.replace(/'/g, `'\\''`)}'`;
+const quotedMarkerPrefix = shellQuote(MARKER).slice(0, -1);
+const isOurHandler = (h) => isPlainObject(h) && typeof h.command === "string"
+  && (h.command.includes(MARKER) || h.command.includes(quotedMarkerPrefix));
 const hasOurHandler = (g) => isPlainObject(g) && Array.isArray(g.hooks) && g.hooks.some(isOurHandler);
 const isOurs = (g) => isPlainObject(g) && Array.isArray(g.hooks) && g.hooks.length > 0 && g.hooks.every(isOurHandler);
 

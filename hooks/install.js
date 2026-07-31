@@ -39,21 +39,51 @@ function nodeWorks(bin) {
     return true;
   } catch { return false; }
 }
-function stableNode() {
-  const candidates = [
-    "/opt/homebrew/bin/node",
-    "/usr/local/bin/node",
-    "/usr/bin/node",
-    path.join(home, ".volta", "bin", "node"),
-    path.join(home, ".asdf", "shims", "node"),
-  ];
-  for (const c of candidates) {
+
+// Version-manager shims and package-manager prefixes that keep the SAME path across
+// node upgrades. nvm and fnm are deliberately absent: neither has a stable path (nvm
+// installs per version, fnm hands each shell its own multishell dir), so for those
+// the login-shell probe below is the only upgrade-proof answer.
+const STABLE_NODES = [
+  "/opt/homebrew/bin/node",
+  "/usr/local/bin/node",
+  "/opt/local/bin/node", // MacPorts
+  "/usr/bin/node",
+  path.join(home, ".volta", "bin", "node"),
+  path.join(home, ".asdf", "shims", "node"),
+  path.join(home, ".local", "share", "mise", "shims", "node"),
+  path.join(home, ".nix-profile", "bin", "node"),
+];
+
+// Codex runs hook commands through `$SHELL -lc`, so probing that exact shell tells us
+// whether a bare `node` in the command would resolve at hook time. If it does, bare
+// `node` beats any absolute path: it re-resolves on every run and therefore survives
+// version-manager upgrades that move the binary (nvm, fnm, a per-shell shim dir).
+function loginShellResolvesNode() {
+  const shell = process.env.SHELL;
+  if (!shell) return false;
+  let out;
+  try {
+    out = cp.execFileSync(shell, ["-lc", "command -v node"],
+      { encoding: "utf8", timeout: 5000, stdio: ["ignore", "pipe", "ignore"] });
+  } catch { return false; }
+  // Last line only: login shells love to print into stdout (`command -v` output is last).
+  const resolved = out.trim().split("\n").pop().trim();
+  return path.isAbsolute(resolved) && nodeWorks(resolved);
+}
+
+// nodeBin === null means "write a bare `node` and let the hook's own shell resolve it";
+// it is also why the manifest then carries no `node` key — there is no path for the app
+// to watch for disappearance, and none is needed.
+function resolveNode() {
+  for (const c of STABLE_NODES) {
     try { fs.accessSync(c, fs.constants.X_OK); } catch { continue; }
     if (nodeWorks(c)) return c;
   }
-  return process.execPath; // the node running this installer — known good
+  if (loginShellResolvesNode()) return null;
+  return process.execPath; // the node running this installer — known good, if not upgrade-proof
 }
-const node = stableNode();
+const nodeBin = resolveNode();
 
 // --- trusted_hash recipe (verified byte-for-byte against codex-rs discovery.rs) ---
 
@@ -100,10 +130,16 @@ function trustedHash(event, hd, matcher) {
 
 // --- hook set ---
 
-// Double quotes work identically for plain paths in sh/bash/zsh/fish (Codex runs hooks
-// via `$SHELL -lc`). `exec` makes the shell replace itself with node, so process.ppid
-// inside the script is the session's `codex` process (liveness contract with the app).
-const cmd = (script, evt) => `exec "${node}" "${script}" ${evt}`;
+// Single quotes suppress every expansion in sh/bash/zsh AND fish (Codex runs hooks via
+// `$SHELL -lc`), and `'\''` closes/escapes/reopens identically in all four — double
+// quotes would let a `$` or a backtick in a home path expand. `exec` makes the shell
+// replace itself with node, so process.ppid inside the script is the session's `codex`
+// process (liveness contract with the app).
+// Nothing here may use `VAR=value cmd` prefixes or `${VAR:+…}` — valid in sh/bash/zsh,
+// a hard syntax error in fish, which would kill every hook for fish users.
+const shellQuote = (v) => `'${v.replace(/'/g, `'\\''`)}'`;
+const nodeWord = nodeBin === null ? "node" : shellQuote(nodeBin);
+const cmd = (script, evt) => `exec ${nodeWord} ${shellQuote(script)} ${evt}`;
 
 const HOOKS = [
   { event: "SessionStart", command: cmd(lifecycleDest, "start") },
@@ -118,7 +154,11 @@ const HOOKS = [
 // --- helpers ---
 
 const isPlainObject = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
-const isOurHandler = (h) => isPlainObject(h) && typeof h.command === "string" && h.command.includes(MARKER);
+// A quote inside the home path splits MARKER across the `'\''` escape, so also match the
+// quoted form up to that first break — otherwise we would stop recognizing our own hooks.
+const quotedMarkerPrefix = shellQuote(MARKER).slice(0, -1);
+const isOurHandler = (h) => isPlainObject(h) && typeof h.command === "string"
+  && (h.command.includes(MARKER) || h.command.includes(quotedMarkerPrefix));
 const hasOurHandler = (g) => isPlainObject(g) && Array.isArray(g.hooks) && g.hooks.some(isOurHandler);
 // "Ours" = every handler is ours. A mixed group (user edited handlers into ours) is
 // never replaced or removed — user content is not ours to destroy.
@@ -211,6 +251,23 @@ function installInto(codexHome, prevEntry) {
   const hooksJsonPath = path.join(codexHome, "hooks.json");
   const configTomlPath = path.join(codexHome, "config.toml");
   const fail = (msgs) => { for (const m of msgs) console.error(m); failures++; return null; };
+
+  // A missing home is only ours to create when it is the one this run targets (an
+  // explicit CODEX_HOME, or the default on a first install). A RECORDED home that has
+  // since been deleted stays deleted — resurrecting it would leave hook files in a
+  // directory the user got rid of. Either way, never crash on it.
+  if (!fs.existsSync(codexHome)) {
+    if (codexHome !== (envHome || defaultHome)) {
+      console.log(`note: ${codexHome} no longer exists; dropping it from the manifest.`);
+      delete installs[codexHome]; // forget it, so the next run falls back to the default home
+      return null;
+    }
+    try {
+      fs.mkdirSync(codexHome, { recursive: true });
+    } catch (e) {
+      return fail([`ERROR: could not create ${codexHome} (${e.message}); not installing there.`]);
+    }
+  }
 
   // --- hooks.json: validate strictly, then upsert in place (indices never shift) ---
   let hooksFile = { hooks: {} };
@@ -338,7 +395,11 @@ for (const codexHome of targets) {
 
 // --- manifest (lets uninstall/reinstall find exactly what we own, per codex home) ---
 
-writeAtomic(manifestPath, JSON.stringify({ version: 2, node, installs }, null, 2) + "\n");
+// `node` is the path the app watches for disappearance (a dead node path silences every
+// hook); it is omitted when the commands resolve node through the hook's own shell,
+// because then there is no fixed path that could go stale.
+writeAtomic(manifestPath, JSON.stringify(
+  { version: 2, ...(nodeBin === null ? {} : { node: nodeBin }), installs }, null, 2) + "\n");
 
 console.log("Scripts:", updateDest, "and", lifecycleDest);
 const allBaks = Object.values(installs)

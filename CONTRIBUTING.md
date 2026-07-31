@@ -36,7 +36,17 @@ Build off the latest `main` so you're not fixing something that already changed.
 
 ## Testing
 
-Before you open a PR, actually run it. "Builds clean" is not testing.
+The installer and uninstaller have an automated suite (no dependencies, just Node's own
+test runner). It runs against a throwaway `HOME`, never your real `~/.codex`:
+
+```bash
+node --test "tests/*.test.js"
+```
+
+Touching `hooks/install.js` or `hooks/uninstall.js` means running it — those two decide
+whether Codex trusts the hooks at all, and a wrong `trusted_hash` fails silently.
+
+Beyond that: before you open a PR, actually run it. "Builds clean" is not testing.
 
 Test it on the surfaces you can, because they behave differently:
 
