@@ -3,6 +3,11 @@
 All notable changes to Codex Status Bar are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.2] - 2026-07-31
+
+### Changed
+- **The DMG is now signed with a Developer ID and notarized by Apple.** Earlier releases were ad-hoc signed, so macOS refused them outright — on macOS 15 and later with the harshest wording it has ("is damaged … move it to the Trash"), and without offering the old right-click → Open way around it. This release opens by double-clicking it, like anything else.
+
 ## [0.1.1] - 2026-07-31
 
 ### Fixed
