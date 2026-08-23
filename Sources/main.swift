@@ -379,6 +379,11 @@ final class StatusController: NSObject, NSMenuDelegate {
     var sessionWord: [String: String] = [:] // id -> current thinking word; re-picked on each entry into "thinking"
     var soundThreshold: Double = 0  // 0 = off; else the min turn length (seconds) that chimes on completion
     var turnStart: [String: Double] = [:]  // id -> active turn start, for the completion-sound length gate
+    var lastTitleText: String? = nil
+    // Icon frames are deterministic per (style, frame, color); rebuilding one per animation
+    // step re-rasterized identical images at fps. Cleared when the style or color changes.
+    var iconCache: [String: NSImage] = [:]
+    var turnMarkerCache: [String: (mtime: Date?, marker: String?)] = [:]
     lazy var completionSound: NSSound? = {
         guard let p = Bundle.main.path(forResource: "completion", ofType: "mp3"),
               let s = NSSound(contentsOfFile: p, byReference: true) else { return nil }
@@ -729,7 +734,7 @@ final class StatusController: NSObject, NSMenuDelegate {
 
         let soundParent = NSMenuItem(title: "Completion Sound", action: nil, keyEquivalent: "")
         let soundSub = NSMenu()
-        for (secs, name) in [(0.0, "Off"), (60.0, "1 min+"), (300.0, "5 min+"), (900.0, "15 min+")] {
+        for (secs, name) in [(0.0, "Off"), (0.1, "Every turn"), (60.0, "1 min+"), (300.0, "5 min+"), (900.0, "15 min+")] {
             let it = NSMenuItem(title: name, action: #selector(chooseSound(_:)), keyEquivalent: "")
             it.target = self
             it.representedObject = NSNumber(value: secs)
@@ -1038,6 +1043,7 @@ final class StatusController: NSObject, NSMenuDelegate {
         guard let sys = sender.representedObject as? Bool else { return }
         iconSystem = sys
         UserDefaults.standard.set(iconSystem, forKey: "iconSystem")
+        iconCache.removeAll()
         evaluate() // re-render the current state in the new color
     }
 
@@ -1051,6 +1057,7 @@ final class StatusController: NSObject, NSMenuDelegate {
         guard let raw = sender.representedObject as? String, let st = AnimStyle(rawValue: raw) else { return }
         animStyle = st
         UserDefaults.standard.set(raw, forKey: "animStyle")
+        iconCache.removeAll()
         animTimer?.invalidate(); animTimer = nil // recreate at the new style's fps
         frameIdx = 0
         evaluate()
@@ -1177,6 +1184,7 @@ final class StatusController: NSObject, NSMenuDelegate {
             if dead {
                 try? FileManager.default.removeItem(atPath: (stateDir as NSString).appendingPathComponent(id + ".json"))
                 sessions[id] = nil; fileMTimes[id + ".json"] = nil; prevState[id] = nil; sessionWord[id] = nil; turnStart[id] = nil
+                if !s.transcript.isEmpty { turnMarkerCache[s.transcript] = nil }
                 continue
             }
             sessions[id] = s
@@ -1243,11 +1251,21 @@ final class StatusController: NSObject, NSMenuDelegate {
             if !s.transcript.isEmpty,
                let attrs = try? FileManager.default.attributesOfItem(atPath: s.transcript),
                let m = attrs[.modificationDate] as? Date, m.timeIntervalSince1970 >= s.ts + 1,
-               let marker = lastTurnMarker(ofFileAt: s.transcript),
+               let marker = cachedLastTurnMarker(ofFileAt: s.transcript, mtime: m),
                marker != "task_started" { return "idle" }
             return s.state
         }
         return s.state == "done" ? "idle" : s.state
+    }
+
+    // effectiveState runs every tick for every working session; re-tailing the rollout each
+    // time was 8KB of file I/O per session at 2.5 Hz. Rollouts only grow when Codex writes
+    // (seconds apart), so gate the read on the mtime effectiveState already fetched.
+    func cachedLastTurnMarker(ofFileAt path: String, mtime: Date?) -> String? {
+        if let hit = turnMarkerCache[path], hit.mtime == mtime { return hit.marker }
+        let marker = lastTurnMarker(ofFileAt: path)
+        turnMarkerCache[path] = (mtime, marker)
+        return marker
     }
 
 
@@ -1345,6 +1363,12 @@ final class StatusController: NSObject, NSMenuDelegate {
         if showTimer, startedAt > 0 {
             text += (text.isEmpty ? "" : "  ") + elapsed(max(0, Int(Date().timeIntervalSince1970 - startedAt)))
         }
+        // Assigning attributedTitle re-shapes the string through CoreText and re-snapshots the
+        // status item bitmap, so at animation fps an unchanged title costs a full redraw per frame
+        // (the clock only ticks at 1 Hz). labelColor is dynamic and resolves at draw, so skipping
+        // the assignment still tracks light/dark menu bars.
+        guard text != lastTitleText else { return }
+        lastTitleText = text
         if text.isEmpty {
             button.imagePosition = .imageOnly
             button.attributedTitle = NSAttributedString(string: "")
@@ -1363,6 +1387,18 @@ final class StatusController: NSObject, NSMenuDelegate {
     // MARK: icon
 
     func iconImage(color: NSColor?, frame: Int) -> NSImage {
+        cachedIcon("\(animStyle.rawValue)|\(frame)", color: color) { buildIconImage(color: color, frame: frame) }
+    }
+
+    func cachedIcon(_ key: String, color: NSColor?, build: () -> NSImage) -> NSImage {
+        let k = key + "|" + (color == nil ? "template" : color!.description)
+        if let cached = iconCache[k] { return cached }
+        let img = build()
+        iconCache[k] = img
+        return img
+    }
+
+    func buildIconImage(color: NSColor?, frame: Int) -> NSImage {
         switch animStyle {
         case .dots:     return glyphIcon(color: color, mask: dotsGlyphMasks[frame % max(1, dotsGlyphMasks.count)], scale: 1.0)
         case .pulse:    return pulseIcon(color: color, frame: frame)
@@ -1553,11 +1589,16 @@ final class StatusController: NSObject, NSMenuDelegate {
 
     // Resting icon: a ">_" terminal prompt, rasterized once from the system mono font.
     lazy var promptMask: NSImage = StatusController.glyphMask(">_", font: NSFont.monospacedSystemFont(ofSize: 180, weight: .bold))
+    // render() assigns these on every non-animated tick (2.5 Hz), so they are cached too.
     func restingIcon(color: NSColor?) -> NSImage {
-        glyphIcon(color: color, mask: promptMask, scale: 0.95)
+        cachedIcon("resting", color: color) { glyphIcon(color: color, mask: promptMask, scale: 0.95) }
     }
 
     func dotIcon(color: NSColor?) -> NSImage {
+        cachedIcon("dot", color: color) { buildDotIcon(color: color) }
+    }
+
+    func buildDotIcon(color: NSColor?) -> NSImage {
         let s: CGFloat = 18, d: CGFloat = 9
         let img = NSImage(size: NSSize(width: s, height: s), flipped: false) { _ in
             (color ?? .systemYellow).setFill()

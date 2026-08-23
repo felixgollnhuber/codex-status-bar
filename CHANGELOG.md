@@ -3,6 +3,14 @@
 All notable changes to Codex Status Bar are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.3] - 2026-08-23
+
+### Added
+- **Completion Sound has an "Every turn" option.** The chime can now play the moment any turn finishes, instead of only after turns of a minute or longer. Still off by default. (Upstream 0.4.3.)
+
+### Changed
+- **Lower CPU usage.** Three fixes ported from upstream 0.4.4 ([#53](https://github.com/m1ckc3s/claude-status-bar/issues/53), found by [@Bardin08](https://github.com/Bardin08)): the menu bar title is no longer rebuilt and re-rendered on every animation frame (it only changes once a second); animation frames, the resting `>_` and the amber dot are rasterized once and cached instead of being redrawn on every step or poll; and each session's rollout is only re-read when its mtime actually changes rather than 2.5 times a second per session. Upstream's fourth fix (observing the desktop app instead of querying it on every poll) was never needed here — this port only asks when you open the menu.
+
 ## [0.1.2] - 2026-07-31
 
 ### Changed

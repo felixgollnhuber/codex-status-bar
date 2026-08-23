@@ -13,5 +13,7 @@ The upstream contributors whose work lives on in this port:
 - **[@ethan0905](https://github.com/ethan0905)**, [PR #37](https://github.com/m1ckc3s/claude-status-bar/pull/37): git branch names in the session rows and the parent-folder disambiguation for same-named projects, with a cheap no-git-spawn HEAD read.
 - **[@moritzwendt](https://github.com/moritzwendt)**, [PR #34](https://github.com/m1ckc3s/claude-status-bar/pull/34): the build.sh fallback to an ad-hoc build when no Developer ID cert is installed.
 - **[@Bardin08](https://github.com/Bardin08)**, [issue #44](https://github.com/m1ckc3s/claude-status-bar/issues/44): the root-cause analysis behind the self-heal (hooks relaunch the app).
+- **[@pedrol2b](https://github.com/pedrol2b)**, [PR #48](https://github.com/m1ckc3s/claude-status-bar/pull/48): found the Homebrew-Node time bomb (a version-specific Node path pinned into the hooks) and started upstream's test suite; both shaped the 0.1.1 Node resolution and tests here.
+- **[@Bardin08](https://github.com/Bardin08)**, [issue #53](https://github.com/m1ckc3s/claude-status-bar/issues/53): the profiler-backed CPU report behind upstream's 0.4.4 performance work, ported here in 0.1.3 (title redraw guard, frame cache, rollout tail cache).
 
 Thanks as well to everyone who opened issues and pull requests upstream along the way.

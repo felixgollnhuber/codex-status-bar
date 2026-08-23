@@ -37,7 +37,7 @@ Everything is controlled from the menu:
 - **Thinking words:** off (default), the bar shows the icon only — silent and narrow. On, it shows status text: a rotating playful verb (`Manifesting…`, `Percolating…`) while thinking, the tool label while a tool runs.
 - **Animation:** **Dots** (braille spinner), **Pulse** (breathing dot, like the Codex TUI's shimmer), **Cursor** (a blinking `>_` prompt), **Ellipsis** (typing dots), **Bars** (terminal equalizer), **Scanner** (sweeping progress segment), or **Shimmer** (a highlight travelling across dots).
 - **Color:** **Blue** or **System** (adaptive black/white).
-- **Completion sound:** an optional chime when a long turn finishes (1/5/15 min thresholds).
+- **Completion sound:** an optional chime when a turn finishes — every turn, or only after turns of 1/5/15 min or longer.
 - **Version and update:** the menu shows your current version and tells you when an update is ready.
 
 ### Where it works
