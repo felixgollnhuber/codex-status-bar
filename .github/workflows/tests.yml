@@ -1,6 +1,6 @@
-# Installer/uninstaller tests plus a Swift build check. macOS runners because the
-# tests exercise the real hook commands under sh, zsh and bash, and the app is
-# macOS-only anyway. No event input is used anywhere in this workflow.
+# Hook and Swift regression tests plus a universal build check. macOS runners
+# because the tests exercise real hook commands under sh, zsh and bash, and the
+# app is macOS-only. No event input is used anywhere in this workflow.
 name: Tests
 
 on:
@@ -14,8 +14,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run the hook installer tests
+      - name: Run the hook tests
         run: node --test "tests/*.test.js"
+
+      - name: Run Swift regression tests
+        run: bash tests/swift-tests.sh
 
       - name: Build the app
         run: ./build.sh

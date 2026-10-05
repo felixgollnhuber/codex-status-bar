@@ -36,15 +36,21 @@ Build off the latest `main` so you're not fixing something that already changed.
 
 ## Testing
 
-The installer and uninstaller have an automated suite (no dependencies, just Node's own
-test runner). It runs against a throwaway `HOME`, never your real `~/.codex`:
+The runtime hooks, installer, and uninstaller have an automated suite (no dependencies,
+just Node's own test runner). It runs against a throwaway `HOME`, never your real
+`~/.codex`, and app launches and preference changes are stubbed:
 
 ```bash
 node --test "tests/*.test.js"
+bash tests/swift-tests.sh
 ```
 
-Touching `hooks/install.js` or `hooks/uninstall.js` means running it — those two decide
+Run the hook suite when changing `hooks/*.js`. The installer and uninstaller decide
 whether Codex trusts the hooks at all, and a wrong `trusted_hash` fails silently.
+The Swift suite tests rollout recovery, icon rasterization, Orbit timing and colors,
+and text preference migration without launching the menu bar app. Use
+`"build/Codex Status Bar.app/Contents/MacOS/CodexStatusBar" --render-frames build/frames`
+to export all animation frames without starting the hook or session runtime.
 
 Beyond that: before you open a PR, actually run it. "Builds clean" is not testing.
 

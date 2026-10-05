@@ -320,6 +320,7 @@ final class StatusController: NSObject, NSMenuDelegate {
     var pollTimer: Timer?
     var animTimer: Timer?
     var frameIdx = 0
+    var orbitOutro = false
 
     let launchedAt = Date()
     var notNeededSince: Date?
@@ -371,11 +372,11 @@ final class StatusController: NSObject, NSMenuDelegate {
     let brand = NSColor(srgbRed: 0.357, green: 0.553, blue: 0.937, alpha: 1) // #5B8DEF, the "Blue" accent
     let amber = NSColor(srgbRed: 0.95, green: 0.73, blue: 0.18, alpha: 1) // "awaiting permission" yellow dot
 
-    enum AnimStyle: String { case dots, pulse, cursor, ellipsis, bars, scanner, shimmer }
+    enum AnimStyle: String { case dots, pulse, cursor, ellipsis, bars, scanner, shimmer, orbit }
     var animStyle: AnimStyle = .dots
     var showTimer = false
     var iconSystem = false // false = brand Blue; true = adaptive black/white (template image)
-    var useThinkingWords = false    // show status text in the bar (rotating verb / tool label); off = icon-only
+    var showLabel = false           // bar text only; tooltips and the independent timer stay readable
     var sessionWord: [String: String] = [:] // id -> current thinking word; re-picked on each entry into "thinking"
     var soundThreshold: Double = 0  // 0 = off; else the min turn length (seconds) that chimes on completion
     var turnStart: [String: Double] = [:]  // id -> active turn start, for the completion-sound length gate
@@ -418,7 +419,8 @@ final class StatusController: NSObject, NSMenuDelegate {
         "Undulating", "Unfurling", "Unravelling", "Vibing", "Waddling", "Wandering", "Warping",
         "Whirlpooling", "Whirring", "Whisking", "Wibbling", "Working", "Wrangling", "Zesting", "Zigzagging"]
     var iconColor: NSColor? { iconSystem ? nil : brand } // nil => render as an adaptive template
-    // All animation styles are rendered in code — no bundled sprite assets.
+    var reduceMotion: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+    // Existing styles are code-rendered; Orbit uses the upstream dot strips.
     let dotsGlyphs = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] // classic braille spinner
     lazy var dotsGlyphMasks: [NSImage] = dotsGlyphs.map { StatusController.glyphMask($0) }
     lazy var caretMask: NSImage = StatusController.glyphMask(">", font: NSFont.monospacedSystemFont(ofSize: 180, weight: .bold))
@@ -431,6 +433,7 @@ final class StatusController: NSObject, NSMenuDelegate {
         case .bars: return 14
         case .scanner: return 18
         case .shimmer: return 15
+        case .orbit: return OrbitAnimation.fps
         }
     }
     var frameCount: Int {
@@ -442,15 +445,19 @@ final class StatusController: NSObject, NSMenuDelegate {
         case .bars: return 28    // one equalizer wave, ~2s
         case .scanner: return 36 // one ping-pong sweep, ~2s
         case .shimmer: return 30 // one highlight sweep, ~2s
+        case .orbit: return OrbitAnimation.bodyCount
         }
     }
 
-    override init() {
+    init(startRuntime: Bool = true) {
         super.init()
+        // Frame export must not read sessions, install hooks, change preferences,
+        // clear quit intent, or check for updates on the developer's machine.
+        guard startRuntime else { return }
         let d = UserDefaults.standard
         if d.object(forKey: "showTimer") != nil { showTimer = d.bool(forKey: "showTimer") }
         if d.object(forKey: "iconSystem") != nil { iconSystem = d.bool(forKey: "iconSystem") }
-        if d.object(forKey: "thinkingWords") != nil { useThinkingWords = d.bool(forKey: "thinkingWords") }
+        showLabel = StatusPreferences.showLabel(in: d)
         if d.object(forKey: "soundThreshold") != nil { soundThreshold = d.double(forKey: "soundThreshold") }
         if let s = d.string(forKey: "animStyle"), let st = AnimStyle(rawValue: s) { animStyle = st }
         let menu = NSMenu()
@@ -700,17 +707,17 @@ final class StatusController: NSObject, NSMenuDelegate {
             UserDefaults.standard.set(on, forKey: "showTimer")
             self?.applyTitle()
         })
-        menu.addItem(toggleRow(title: "Thinking words", isOn: useThinkingWords) { [weak self] on in
-            self?.useThinkingWords = on
-            UserDefaults.standard.set(on, forKey: "thinkingWords")
-            self?.evaluate()   // re-render the bar label immediately with/without the rotating word
+        menu.addItem(toggleRow(title: "Show text", isOn: showLabel) { [weak self] on in
+            self?.showLabel = on
+            UserDefaults.standard.set(on, forKey: "showLabel")
+            self?.applyTitle()
         })
 
         let animParent = NSMenuItem(title: "Animation", action: nil, keyEquivalent: "")
         let animSub = NSMenu()
         for (style, name) in [(AnimStyle.dots, "Dots"), (AnimStyle.pulse, "Pulse"), (AnimStyle.cursor, "Cursor"),
                               (AnimStyle.ellipsis, "Ellipsis"), (AnimStyle.bars, "Bars"), (AnimStyle.scanner, "Scanner"),
-                              (AnimStyle.shimmer, "Shimmer")] {
+                              (AnimStyle.shimmer, "Shimmer"), (AnimStyle.orbit, "Orbit")] {
             let it = NSMenuItem(title: name, action: #selector(chooseStyle(_:)), keyEquivalent: "")
             it.target = self
             it.representedObject = style.rawValue
@@ -836,6 +843,15 @@ final class StatusController: NSObject, NSMenuDelegate {
         return line
     }
 
+    func sessionTooltip(_ s: Session) -> String {
+        let eff = s.eff.isEmpty ? effectiveState(s, now: Date().timeIntervalSince1970) : s.eff
+        var text = sessionName(s)
+        if !s.branch.isEmpty { text += " · " + s.branch }
+        text += "\n" + statusText(s, eff: eff)
+        if !s.cwd.isEmpty { text += "\n" + s.cwd }
+        return text
+    }
+
     // Live layout knobs read fresh from ~/.codex/statusbar/uiconfig.json each render, so numeric
     // tweaks (timer column, pill offset, gap) take effect on the next menu open with NO rebuild.
     func uiConfig() -> [String: Double] {
@@ -856,7 +872,7 @@ final class StatusController: NSObject, NSMenuDelegate {
         let tag = surfaceTag(s.entrypoint)
         v.configure(icon: sessionSymbol(s, eff: eff),
                     iconTint: resting ? .tertiaryLabelColor : .labelColor,  // caret dim; spinner matches the name font; amber image ignores tint
-                    spinning: (eff == "thinking" || eff == "tool"),
+                    spinning: (eff == "thinking" || eff == "tool") && !reduceMotion,
                     name: truncated(sessionName(s), max: nameMax, keep: nameMax),
                     branch: truncated(s.branch, max: 22, keep: 20),
                     timer: working ? elapsed(max(0, Int(now - s.startedAt))) : nil,
@@ -865,10 +881,7 @@ final class StatusController: NSObject, NSMenuDelegate {
                     pillInset: CGFloat(cfg["pillInset"] ?? 12),
                     timerGap: CGFloat(cfg["timerGap"] ?? 10))
         // Truncated rows stay inspectable: full name, branch, and path on hover.
-        var tip = sessionName(s)
-        if !s.branch.isEmpty { tip += " · " + s.branch }
-        if !s.cwd.isEmpty { tip += "\n" + s.cwd }
-        v.toolTip = tip
+        v.toolTip = sessionTooltip(s)
     }
 
     func statusText(_ s: Session, eff: String) -> String {
@@ -928,7 +941,7 @@ final class StatusController: NSObject, NSMenuDelegate {
     func sessionSymbol(_ s: Session, eff: String) -> NSImage? {
         switch eff {
         case "permission":       return symbolImage("exclamationmark.circle.fill", tint: amber)
-        case "thinking", "tool": return nil
+        case "thinking", "tool": return reduceMotion ? symbolImage("ellipsis") : nil
         default:                 return restingCaret   // done/idle merged: dim "ready for input" caret
         }
     }
@@ -974,12 +987,8 @@ final class StatusController: NSObject, NSMenuDelegate {
         }
     }
 
-    // Toggle OFF (default): a silent bar — icon animation (+ optional timer) only, no
-    // text. Toggle ON: a rotating verb while thinking, the tool label while a tool
-    // runs. Codex sessions spend most of their time in "tool", so gating the words on
-    // "thinking" alone made the toggle look dead.
+    // Full status text is retained for tooltips; Show text controls only the bar.
     func workingLabel(_ s: Session) -> String {
-        guard useThinkingWords else { return "" }
         if s.state == "thinking", let w = sessionWord[s.id], !w.isEmpty { return w + "…" }
         if !s.label.isEmpty { return s.label }
         return "Working…"
@@ -1059,6 +1068,7 @@ final class StatusController: NSObject, NSMenuDelegate {
         UserDefaults.standard.set(raw, forKey: "animStyle")
         iconCache.removeAll()
         animTimer?.invalidate(); animTimer = nil // recreate at the new style's fps
+        orbitOutro = false
         frameIdx = 0
         evaluate()
     }
@@ -1220,7 +1230,7 @@ final class StatusController: NSObject, NSMenuDelegate {
             let pa = priority(of: a.eff), pb = priority(of: b.eff)
             return pa == pb ? a.ts < b.ts : pa < pb
         }
-        statusItem.button?.toolTip = lead.map(sessionMenuLine)  // names repo + surface + state on hover
+        statusItem.button?.toolTip = lead.map(sessionTooltip)
 
         guard let lead = lead else { renderResting(); return }
         switch lead.eff {
@@ -1305,26 +1315,8 @@ final class StatusController: NSObject, NSMenuDelegate {
 
     // Last turn-lifecycle marker in the Codex rollout (JSONL transcript), tailing ~8KB:
     // "task_started" = a turn is running, "task_complete" / "turn_aborted" = it isn't.
-    // Matched as exact JSON tokens (with quotes) — message TEXT can contain the literal
-    // words (e.g. the "<turn_aborted>" developer note Codex injects after an interrupt).
     func lastTurnMarker(ofFileAt path: String) -> String? {
-        guard let fh = FileHandle(forReadingAtPath: path) else { return nil }
-        defer { try? fh.close() }
-        let size = (try? fh.seekToEnd()) ?? 0
-        let chunk: UInt64 = 8192
-        try? fh.seek(toOffset: size > chunk ? size - chunk : 0)
-        guard let data = try? fh.readToEnd() else { return nil }
-        // Lossy decode: the 8KB tail can start mid-way through a multi-byte UTF-8
-        // character (strict decoding would then fail on EVERY tick of a frozen file,
-        // permanently disabling this net). Replacement chars can't fabricate the
-        // ASCII marker tokens below.
-        let s = String(decoding: data, as: UTF8.self)
-        let markers = ["task_started", "task_complete", "turn_aborted"]
-        for line in s.split(separator: "\n").reversed() {
-            guard line.contains("\"type\":\"event_msg\"") else { continue }
-            if let m = markers.first(where: { line.contains("\"type\":\"\($0)\"") }) { return m }
-        }
-        return nil
+        Rollout.lastTurnMarker(ofFileAt: path)
     }
 
     // MARK: render
@@ -1336,33 +1328,67 @@ final class StatusController: NSObject, NSMenuDelegate {
         activeColor = color
         self.startedAt = startedAt
 
-        if animate {
+        if animate && reduceMotion {
+            orbitOutro = false
+            animTimer?.invalidate(); animTimer = nil
+            frameIdx = 0
+            // A static working indicator remains distinct from the resting prompt.
+            button.image = animStyle == .orbit
+                ? iconImage(color: color, frame: OrbitAnimation.loopStart)
+                : cachedIcon("working-still", color: color) { glyphIcon(color: color, mask: Self.glyphMask("…"), scale: 0.95) }
+        } else if animate {
+            if orbitOutro { frameIdx = OrbitAnimation.loopStart }
+            orbitOutro = false
             if animTimer == nil {
                 let t = Timer(timeInterval: 1.0 / fps, repeats: true) { [weak self] _ in self?.animStep() }
                 RunLoop.main.add(t, forMode: .common)
                 animTimer = t
+                button.image = iconImage(color: color, frame: frameIdx)
             }
-        } else {
+        } else if dot {
+            orbitOutro = false
             animTimer?.invalidate(); animTimer = nil
             frameIdx = 0
-            button.image = dot ? dotIcon(color: color) : restingIcon(color: color)
+            button.image = dotIcon(color: color)
+        } else if orbitOutro && !reduceMotion {
+            // The short outro keeps running while the session is already idle.
+        } else if animStyle == .orbit, animTimer != nil, frameIdx >= OrbitAnimation.loopStart, !reduceMotion {
+            orbitOutro = true
+            frameIdx = OrbitAnimation.bodyCount
+            button.image = iconImage(color: color, frame: frameIdx)
+        } else {
+            orbitOutro = false
+            animTimer?.invalidate(); animTimer = nil
+            frameIdx = 0
+            button.image = restingIcon(color: color)
         }
         applyTitle()
         if button.image == nil { button.image = dot ? dotIcon(color: color) : restingIcon(color: color) }
     }
 
     func animStep() {
-        frameIdx = (frameIdx + 1) % frameCount
+        if animStyle == .orbit {
+            guard let next = OrbitAnimation.nextFrame(after: frameIdx, exiting: orbitOutro) else {
+                orbitOutro = false
+                animTimer?.invalidate(); animTimer = nil
+                frameIdx = 0
+                statusItem.button?.image = restingIcon(color: activeColor)
+                applyTitle()
+                return
+            }
+            frameIdx = next
+        } else {
+            frameIdx = (frameIdx + 1) % frameCount
+        }
         statusItem.button?.image = iconImage(color: activeColor, frame: frameIdx)
         applyTitle() // refresh the elapsed clock
     }
 
     func applyTitle() {
         guard let button = statusItem.button else { return }
-        var text = activeBase
-        if showTimer, startedAt > 0 {
-            text += (text.isEmpty ? "" : "  ") + elapsed(max(0, Int(Date().timeIntervalSince1970 - startedAt)))
-        }
+        let clock = showTimer && startedAt > 0
+            ? elapsed(max(0, Int(Date().timeIntervalSince1970 - startedAt))) : nil
+        let text = StatusPreferences.barText(label: activeBase, showLabel: showLabel, clock: clock)
         // Assigning attributedTitle re-shapes the string through CoreText and re-snapshots the
         // status item bitmap, so at animation fps an unchanged title costs a full redraw per frame
         // (the clock only ticks at 1 Hz). labelColor is dynamic and resolves at draw, so skipping
@@ -1393,7 +1419,7 @@ final class StatusController: NSObject, NSMenuDelegate {
     func cachedIcon(_ key: String, color: NSColor?, build: () -> NSImage) -> NSImage {
         let k = key + "|" + (color == nil ? "template" : color!.description)
         if let cached = iconCache[k] { return cached }
-        let img = build()
+        let img = IconRasterizer.flatten(build())
         iconCache[k] = img
         return img
     }
@@ -1407,6 +1433,7 @@ final class StatusController: NSObject, NSMenuDelegate {
         case .bars:     return barsIcon(color: color, frame: frame)
         case .scanner:  return scannerIcon(color: color, frame: frame)
         case .shimmer:  return shimmerIcon(color: color, frame: frame)
+        case .orbit:    return OrbitRenderer.image(at: frame, color: color, prompt: restingIcon(color: color))
         }
     }
 
@@ -1530,11 +1557,10 @@ final class StatusController: NSObject, NSMenuDelegate {
         let img = NSImage(size: NSSize(width: s, height: s), flipped: false) { _ in
             let dw = s * scale
             let r = NSRect(x: (s - dw) / 2, y: (s - dw) / 2, width: dw, height: dw)
+            mask.draw(in: r, from: .zero, operation: .sourceOver, fraction: 1.0)
             if let c = color {
-                c.setFill(); r.fill()
-                mask.draw(in: r, from: .zero, operation: .destinationIn, fraction: 1.0)
-            } else {
-                mask.draw(in: r, from: .zero, operation: .sourceOver, fraction: 1.0)
+                c.setFill()
+                NSRect(x: 0, y: 0, width: s, height: s).fill(using: .sourceIn)
             }
             return true
         }
@@ -1612,12 +1638,14 @@ final class StatusController: NSObject, NSMenuDelegate {
 
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
-let controller = StatusController()
+let renderIndex = CommandLine.arguments.firstIndex(of: "--render-frames")
+let renderOnly = renderIndex.map { $0 + 1 < CommandLine.arguments.count } ?? false
+let controller = StatusController(startRuntime: !renderOnly)
 
 // Dev tool: `CodexStatusBar --render-frames <dir>` dumps every animation style's
 // frames (plus the resting icon) as PNGs and exits — for previewing animations
 // without waiting on a live session.
-if let i = CommandLine.arguments.firstIndex(of: "--render-frames"), i + 1 < CommandLine.arguments.count {
+if let i = renderIndex, renderOnly {
     let dir = CommandLine.arguments[i + 1]
     try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
     func write(_ img: NSImage, _ name: String) {
@@ -1625,13 +1653,19 @@ if let i = CommandLine.arguments.firstIndex(of: "--render-frames"), i + 1 < Comm
               let png = rep.representation(using: .png, properties: [:]) else { return }
         try? png.write(to: URL(fileURLWithPath: "\(dir)/\(name).png"))
     }
-    for style in [StatusController.AnimStyle.dots, .pulse, .cursor, .ellipsis, .bars, .scanner, .shimmer] {
+    for style in [StatusController.AnimStyle.dots, .pulse, .cursor, .ellipsis, .bars, .scanner, .shimmer, .orbit] {
         controller.animStyle = style
-        for f in 0..<controller.frameCount {
+        let count = style == .orbit ? OrbitAnimation.sequence.count : controller.frameCount
+        for f in 0..<count {
             write(controller.iconImage(color: controller.brand, frame: f), String(format: "%@-%03d", style.rawValue, f))
+            if style == .orbit {
+                write(controller.iconImage(color: nil, frame: f), String(format: "orbit-system-%03d", f))
+            }
         }
     }
     write(controller.restingIcon(color: controller.brand), "resting")
+    write(controller.restingIcon(color: nil), "resting-system")
+    write(controller.dotIcon(color: controller.amber), "permission")
     print("Wrote frames to \(dir)")
     exit(0)
 }

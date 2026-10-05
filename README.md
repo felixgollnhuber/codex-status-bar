@@ -34,11 +34,14 @@ Built so you can tab away during a long turn and still see, at a glance, whether
 Everything is controlled from the menu:
 
 - **Show timer:** toggle the elapsed `1m 1s` clock.
-- **Thinking words:** off (default), the bar shows the icon only — silent and narrow. On, it shows status text: a rotating playful verb (`Manifesting…`, `Percolating…`) while thinking, the tool label while a tool runs.
-- **Animation:** **Dots** (braille spinner), **Pulse** (breathing dot, like the Codex TUI's shimmer), **Cursor** (a blinking `>_` prompt), **Ellipsis** (typing dots), **Bars** (terminal equalizer), **Scanner** (sweeping progress segment), or **Shimmer** (a highlight travelling across dots).
+- **Show text:** off by default for an icon-only bar. On, it shows a rotating playful verb (`Manifesting…`, `Percolating…`) while thinking, the tool label while a tool runs, and the attention label while waiting for you. The timer is independent, and status descriptions remain available on hover. Your previous "Thinking words" setting carries over.
+- **Animation:** **Dots** (braille spinner), **Pulse** (breathing dot, like the Codex TUI's shimmer), **Cursor** (a blinking `>_` prompt), **Ellipsis** (typing dots), **Bars** (terminal equalizer), **Scanner** (sweeping progress segment), **Shimmer** (a highlight travelling across dots), or **Orbit** (three dots that merge, orbit, and breathe, blending back to `>_` when the turn finishes).
+- **Reduce Motion:** the macOS accessibility setting keeps the working indicator static and stops session-row spinners.
 - **Color:** **Blue** or **System** (adaptive black/white).
 - **Completion sound:** an optional chime when a turn finishes — every turn, or only after turns of 1/5/15 min or longer.
 - **Version and update:** the menu shows your current version and tells you when an update is ready.
+
+![Orbit animation in Codex Blue, enlarged](assets/orbit-preview.gif)
 
 ### Where it works
 

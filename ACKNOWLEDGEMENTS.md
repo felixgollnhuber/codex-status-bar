@@ -15,5 +15,7 @@ The upstream contributors whose work lives on in this port:
 - **[@Bardin08](https://github.com/Bardin08)**, [issue #44](https://github.com/m1ckc3s/claude-status-bar/issues/44): the root-cause analysis behind the self-heal (hooks relaunch the app).
 - **[@pedrol2b](https://github.com/pedrol2b)**, [PR #48](https://github.com/m1ckc3s/claude-status-bar/pull/48): found the Homebrew-Node time bomb (a version-specific Node path pinned into the hooks) and started upstream's test suite; both shaped the 0.1.1 Node resolution and tests here.
 - **[@Bardin08](https://github.com/Bardin08)**, [issue #53](https://github.com/m1ckc3s/claude-status-bar/issues/53): the profiler-backed CPU report behind upstream's 0.4.4 performance work, ported here in 0.1.3 (title redraw guard, frame cache, rollout tail cache).
+- **[@m1ckc3s](https://github.com/m1ckc3s)**, upstream [0.4.5](https://github.com/m1ckc3s/claude-status-bar/releases/tag/v0.4.5): the Orbit dot strips and animation sequence, plus the additional bitmap-rasterization optimization.
+- **[@felixradtke](https://github.com/felixradtke)**, [PR #62](https://github.com/m1ckc3s/claude-status-bar/pull/62): suggested and first implemented the full status-text toggle, adapted here with preservation of the Codex port's saved preference and hover descriptions.
 
 Thanks as well to everyone who opened issues and pull requests upstream along the way.

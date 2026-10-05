@@ -3,6 +3,25 @@
 All notable changes to Codex Status Bar are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.4] - 2026-10-05
+
+### Fixed
+- Refused installs leave existing hook commands intact when the trust block is incomplete or malformed. Uninstall checks every recorded home's hooks and trust block before changing hooks, trust entries, or the running app.
+- Disabled hooks remain disabled when `enabled = false` has an inline TOML comment.
+- Malformed runtime hook input and missing session ids no longer create, overwrite, or delete an anonymous session file.
+- Rollout recovery reads the actual event payload, accepts Codex's v2 turn aliases, and ignores nested marker lookalikes and partial JSON records.
+- Scaled Blue glyphs retain transparent padding instead of leaving a colored border around the resting prompt.
+
+### Added
+- **Orbit animation**, ported from upstream 0.4.5. Three dots orbit and breathe in Codex Blue or adaptive System color, with entrance and exit transitions to the `>_` prompt. Existing animation selections are preserved.
+- macOS Reduce Motion support for the menu bar working indicator and session-row spinners.
+- Regression coverage for runtime session transitions, approval lanes, quit intent, compaction, startup cleanup, malformed input, config refusal, and rollout parsing. Swift recovery tests run in CI alongside the hook suite and universal build.
+
+### Changed
+- Cached animation frames, the resting prompt, and the permission dot are now materialized as Retina bitmaps once. This ports the remaining rendering optimization from upstream 0.4.5 (`dc4cf880`) while preserving the Codex icons, colors, and animation choices.
+- **Show text** replaces **Thinking words** and also controls attention labels. The previous preference carries over, the timer remains independent, and tooltips retain their status descriptions.
+- `--render-frames` includes Orbit's full entrance, loop, and exit plus its System variant. Export no longer starts session polling, installs hooks, changes preferences, or checks for updates.
+
 ## [0.1.3] - 2026-08-23
 
 ### Added
