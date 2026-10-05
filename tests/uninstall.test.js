@@ -103,12 +103,62 @@ test("an orphaned block marker aborts the uninstall too", (t) => {
   const toml = fs.readFileSync(configTomlPath(home), "utf8");
   const truncated = toml.slice(0, toml.lastIndexOf("# <<<"));
   fs.writeFileSync(configTomlPath(home), truncated);
+  const hooksBefore = fs.readFileSync(hooksJsonPath(home), "utf8");
 
   const res = uninstall(home);
   assert.equal(res.status, 1);
   assert.match(res.stderr, /no end marker/);
   assert.equal(fs.readFileSync(configTomlPath(home), "utf8"), truncated);
+  assert.equal(fs.readFileSync(hooksJsonPath(home), "utf8"), hooksBefore,
+    "refusing the config must leave its corresponding hooks intact");
+  assert.ok(fs.existsSync(sbDir(home)), "the scripts must stay too");
 });
+
+test("a broken later home leaves earlier installations intact", (t) => {
+  const home = sandbox(t);
+  assert.equal(installWithStaleNode(home).status, 0);
+  const custom = path.join(home, "custom-codex");
+  assert.equal(installWithStaleNode(home, { codexHome: custom }).status, 0);
+  const hooksBefore = fs.readFileSync(hooksJsonPath(home), "utf8");
+  const tomlBefore = fs.readFileSync(configTomlPath(home), "utf8");
+  writeFile(path.join(custom, "hooks.json"), "{ not json");
+
+  assert.equal(uninstall(home).status, 1);
+  assert.equal(fs.readFileSync(hooksJsonPath(home), "utf8"), hooksBefore);
+  assert.equal(fs.readFileSync(configTomlPath(home), "utf8"), tomlBefore);
+  assert.ok(fs.existsSync(sbDir(home)));
+});
+
+test("marker text inside a comment cannot close an incomplete trust block", (t) => {
+  const home = sandbox(t);
+  assert.equal(installWithStaleNode(home).status, 0);
+  const hooksBefore = fs.readFileSync(hooksJsonPath(home), "utf8");
+  const toml = fs.readFileSync(configTomlPath(home), "utf8");
+  const end = "# <<< codex-status-bar hooks trust <<<";
+  const truncated = toml.slice(0, toml.lastIndexOf(end)) + `# example footer: ${end}\n`;
+  writeFile(configTomlPath(home), truncated);
+
+  const res = uninstall(home);
+  assert.equal(res.status, 1);
+  assert.match(res.stderr, /no end marker/);
+  assert.equal(fs.readFileSync(hooksJsonPath(home), "utf8"), hooksBefore);
+  assert.equal(fs.readFileSync(configTomlPath(home), "utf8"), truncated);
+});
+
+for (const [name, content] of [
+  ["nested", `${BLOCK_BEGIN}\n${BLOCK_BEGIN}\n# <<< codex-status-bar hooks trust <<<\n`],
+  ["end without begin", "# <<< codex-status-bar hooks trust <<<\n"],
+]) {
+  test(`a ${name} trust block marker refuses uninstall`, (t) => {
+    const home = sandbox(t);
+    assert.equal(installWithStaleNode(home).status, 0);
+    const hooksBefore = fs.readFileSync(hooksJsonPath(home), "utf8");
+    writeFile(configTomlPath(home), content);
+    assert.equal(uninstall(home).status, 1);
+    assert.equal(fs.readFileSync(hooksJsonPath(home), "utf8"), hooksBefore);
+    assert.equal(fs.readFileSync(configTomlPath(home), "utf8"), content);
+  });
+}
 
 test("a broken hooks.json aborts before trust entries are dropped", (t) => {
   const home = sandbox(t);

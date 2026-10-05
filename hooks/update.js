@@ -33,7 +33,7 @@ const TOOL_LABELS = {
   list_agents: "Delegating", close_agent: "Delegating",
 };
 
-const safeId = (s) => String(s || "").replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 64) || "unknown";
+const safeId = (s) => typeof s === "string" ? s.replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 64) : "";
 
 // Codex Desktop launches `codex` as a GUI child, so hooks inherit macOS's
 // __CFBundleIdentifier; terminal sessions carry TERM_PROGRAM instead.
@@ -55,8 +55,13 @@ process.stdin.on("end", () => { try { run(); } catch {} finish(); });
 setTimeout(finish, 2000).unref?.();
 
 function run() {
-  let p = {};
-  try { p = JSON.parse(raw || "{}"); } catch {}
+  let p;
+  try { p = JSON.parse(raw); } catch { return; }
+  if (!p || typeof p !== "object" || Array.isArray(p)) return;
+  const sid = safeId(p.session_id);
+  // No anonymous fallback: a malformed payload must not overwrite another
+  // session's state or relaunch the app.
+  if (!sid) return;
 
   // Off by default; CODEX_STATUSBAR_DEBUG=1 logs every hook invocation to hooks.log.
   if (process.env.CODEX_STATUSBAR_DEBUG === "1") {
@@ -69,7 +74,6 @@ function run() {
 
   // This session's own file is the unit of state AND the liveness marker. Writing it on any
   // event also tracks sessions that predate the hook install (never fired SessionStart).
-  const sid = safeId(p.session_id);
   const statePath = path.join(stateDir, sid + ".json");
 
   let prev = {};

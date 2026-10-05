@@ -139,12 +139,56 @@ test("an orphaned block marker aborts instead of eating the config below it", (t
   const home = sandbox(t);
   const original = [BLOCK_BEGIN, '[hooks.state."x:pre_tool_use:0:0"]', 'trusted_hash = "sha256:abc"', "", 'model = "gpt-5.4-codex"', ""].join("\n");
   writeFile(configTomlPath(home), original);
+  const hooksBefore = fs.existsSync(hooksJsonPath(home))
+    ? fs.readFileSync(hooksJsonPath(home), "utf8") : null;
 
   const res = installWithStaleNode(home);
   assert.equal(res.status, 1);
   assert.match(res.stderr, /no end marker/);
   assert.equal(fs.readFileSync(configTomlPath(home), "utf8"), original);
+  assert.equal(fs.existsSync(hooksJsonPath(home)), hooksBefore !== null,
+    "refusing the config must not install hooks without their trust entries");
 });
+
+test("an inline comment on a disabled hook preserves the opt-out", (t) => {
+  const home = sandbox(t);
+  assert.equal(installWithStaleNode(home).status, 0);
+  const key = `${hooksJsonPath(home)}:stop:0:0`;
+  const header = `[hooks.state.${JSON.stringify(key)}]`;
+  const toml = fs.readFileSync(configTomlPath(home), "utf8");
+  writeFile(configTomlPath(home), toml.replace(header, `${header}\nenabled = false # disabled by the user`));
+
+  assert.equal(installWithStaleNode(home).status, 0);
+  const section = fs.readFileSync(configTomlPath(home), "utf8")
+    .split(header)[1].split("[hooks.state.")[0];
+  assert.match(section, /enabled = false/);
+});
+
+test("a refused reinstall keeps existing hook commands and trust consistent", (t) => {
+  const home = sandbox(t);
+  assert.equal(installWithStaleNode(home).status, 0);
+  const hooksBefore = fs.readFileSync(hooksJsonPath(home), "utf8");
+  const toml = fs.readFileSync(configTomlPath(home), "utf8");
+  const truncated = toml.slice(0, toml.lastIndexOf(BLOCK_END));
+  writeFile(configTomlPath(home), truncated);
+
+  assert.equal(installWithStaleNode(home, { execPath: "/tmp/new-node" }).status, 1);
+  assert.equal(fs.readFileSync(hooksJsonPath(home), "utf8"), hooksBefore);
+  assert.equal(fs.readFileSync(configTomlPath(home), "utf8"), truncated);
+});
+
+for (const [name, content] of [
+  ["nested", `${BLOCK_BEGIN}\n${BLOCK_BEGIN}\n${BLOCK_END}\n`],
+  ["end without begin", `${BLOCK_END}\n`],
+]) {
+  test(`a ${name} trust block marker refuses installation`, (t) => {
+    const home = sandbox(t);
+    writeFile(configTomlPath(home), content);
+    assert.equal(installWithStaleNode(home).status, 1);
+    assert.equal(fs.existsSync(hooksJsonPath(home)), false);
+    assert.equal(fs.readFileSync(configTomlPath(home), "utf8"), content);
+  });
+}
 
 test("a config.toml comment inside our section is kept without breaking the TOML", (t) => {
   const home = sandbox(t);

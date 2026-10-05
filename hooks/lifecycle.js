@@ -15,10 +15,8 @@ const dir = path.join(os.homedir(), ".codex", "statusbar");
 const stateDir = path.join(dir, "state.d");
 const event = process.argv[2];
 
-try { fs.mkdirSync(stateDir, { recursive: true }); } catch {}
-
 const running = () => { try { cp.execFileSync("pgrep", ["-x", EXEC], { stdio: "ignore" }); return true; } catch { return false; } };
-const safeId = (s) => String(s || "").replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 64) || "unknown";
+const safeId = (s) => typeof s === "string" ? s.replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 64) : "";
 // Same liveness probe the app uses: the session's codex process exists (EPERM = exists,
 // not ours — still alive).
 const pidAlive = (pid) => {
@@ -54,8 +52,9 @@ function run() {
 
 function main() {
   let id = "", cwd = "", transcript = "", source = "";
-  try { const j = JSON.parse(input); id = j.session_id; cwd = j.cwd || ""; transcript = j.transcript_path || ""; source = j.source || ""; } catch {}
+  try { const j = JSON.parse(input); id = j.session_id; cwd = j.cwd || ""; transcript = j.transcript_path || ""; source = j.source || ""; } catch { return; }
   id = safeId(id);
+  if (!id) return;
   const statePath = path.join(stateDir, id + ".json");
 
   if (event === "start") {
@@ -63,6 +62,7 @@ function main() {
     // was opened, so leave quit-intent alone, don't relaunch, and don't clobber the
     // live working state with an idle seed.
     if (source === "compact") return;
+    try { fs.mkdirSync(stateDir, { recursive: true }); } catch {}
     // A new session voids a prior explicit Quit (see update.js's self-relaunch suppress).
     try { fs.rmSync(path.join(dir, "quit-intent"), { force: true }); } catch {}
     // If the app isn't running, leftover session files may be stale (e.g. a prior

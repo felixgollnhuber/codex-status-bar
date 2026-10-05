@@ -55,7 +55,9 @@ if (!isPlainObject(manifest.installs) && typeof manifest.hooksJsonPath === "stri
 }
 if (!installs[envCodexHome]) installs[envCodexHome] = { createdHooksJson: false, stateKeys: [] };
 
-try { cp.execFileSync("pkill", ["-x", "CodexStatusBar"], { stdio: "ignore" }); } catch {}
+// Prepare every home before applying changes. A malformed file in a later home
+// must not leave earlier homes half-uninstalled or stop the running app.
+const changes = [];
 
 for (const [codexHome, entry] of Object.entries(installs)) {
   const hooksJsonPath = path.join(codexHome, "hooks.json");
@@ -106,11 +108,11 @@ for (const [codexHome, entry] of Object.entries(installs)) {
       }
       const empty = Object.keys(hooksFile.hooks || {}).length === 0;
       if (empty && entry.createdHooksJson) {
-        fs.rmSync(hooksJsonPath, { force: true });
-        console.log("Removed", hooksJsonPath, "(we created it and it is now empty)");
+        changes.push({ file: hooksJsonPath, remove: true,
+          message: `Removed ${hooksJsonPath} (we created it and it is now empty)` });
       } else {
-        writeAtomic(hooksJsonPath, JSON.stringify(hooksFile, null, 2) + "\n");
-        console.log("Removed status-bar hooks from", hooksJsonPath);
+        changes.push({ file: hooksJsonPath, text: JSON.stringify(hooksFile, null, 2) + "\n",
+          message: `Removed status-bar hooks from ${hooksJsonPath}` });
       }
     } catch (e) {
       console.error("Could not update", hooksJsonPath, "-", e.message);
@@ -123,7 +125,24 @@ for (const [codexHome, entry] of Object.entries(installs)) {
   // --- config.toml: drop the managed block + our sections; re-key shifted survivors ---
   if (fs.existsSync(configTomlPath)) {
     const raw = fs.readFileSync(configTomlPath, "utf8");
-    if (raw.includes(BLOCK_BEGIN) && !raw.includes(BLOCK_END)) {
+    let blockOpen = false;
+    for (const line of raw.split("\n")) {
+      const trimmed = line.trim();
+      if (trimmed === BLOCK_BEGIN) {
+        if (blockOpen) {
+          console.error(`ERROR: ${configTomlPath} has nested status-bar trust block markers; not touching it.`);
+          process.exit(1);
+        }
+        blockOpen = true;
+      } else if (trimmed === BLOCK_END) {
+        if (!blockOpen) {
+          console.error(`ERROR: ${configTomlPath} has a status-bar trust block end marker without a begin marker; not touching it.`);
+          process.exit(1);
+        }
+        blockOpen = false;
+      }
+    }
+    if (blockOpen) {
       console.error(`ERROR: ${configTomlPath} has the status-bar block begin marker but no end marker ("${BLOCK_END}").`);
       console.error("Aborting to avoid deleting config below the orphaned marker. Restore the end marker, then re-run.");
       process.exit(1);
@@ -171,9 +190,16 @@ for (const [codexHome, entry] of Object.entries(installs)) {
       }
       if (!skipSection) out.push(line);
     }
-    writeAtomic(configTomlPath, out.join("\n"));
-    console.log("Removed status-bar trust entries from", configTomlPath);
+    changes.push({ file: configTomlPath, text: out.join("\n"),
+      message: `Removed status-bar trust entries from ${configTomlPath}` });
   }
+}
+
+try { cp.execFileSync("pkill", ["-x", "CodexStatusBar"], { stdio: "ignore" }); } catch {}
+for (const change of changes) {
+  if (change.remove) fs.rmSync(change.file, { force: true });
+  else writeAtomic(change.file, change.text);
+  console.log(change.message);
 }
 
 // --- app preferences: without this, reinstalling the SAME version would skip the

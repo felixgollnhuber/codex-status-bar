@@ -192,19 +192,25 @@ function stripOurTrustEntries(toml, ownKeys) {
   let inBlock = false, skipKey = null;
   for (const line of lines) {
     const trimmed = line.trim();
-    if (trimmed === BLOCK_BEGIN) { inBlock = true; skipKey = null; continue; }
-    if (trimmed === BLOCK_END) { inBlock = false; skipKey = null; continue; }
+    if (trimmed === BLOCK_BEGIN) {
+      if (inBlock) return null;
+      inBlock = true; skipKey = null; continue;
+    }
+    if (trimmed === BLOCK_END) {
+      if (!inBlock) return null;
+      inBlock = false; skipKey = null; continue;
+    }
     const ownKey = trimmed.startsWith("[") ? (ownHeaders.get(trimmed) ?? null) : null;
     if (inBlock) {
       // Inside our managed block everything is ours — drop it, but harvest opt-outs.
       if (ownKey !== null) skipKey = ownKey;
-      if (skipKey !== null && /^enabled\s*=\s*false\s*$/.test(trimmed)) disabled.add(skipKey);
+      if (skipKey !== null && /^enabled\s*=\s*false\s*(?:#.*)?$/.test(trimmed)) disabled.add(skipKey);
       continue;
     }
     if (ownKey !== null) { skipKey = ownKey; continue; }
     if (skipKey !== null) {
       if (/^trusted_hash\s*=/.test(trimmed) || /^enabled\s*=/.test(trimmed) || trimmed === "") {
-        if (/^enabled\s*=\s*false\s*$/.test(trimmed)) disabled.add(skipKey);
+        if (/^enabled\s*=\s*false\s*(?:#.*)?$/.test(trimmed)) disabled.add(skipKey);
         continue;
       }
       if (trimmed.startsWith("#")) { out.push(line); continue; } // comment: keep it, stay in our section
@@ -323,7 +329,6 @@ function installInto(codexHome, prevEntry) {
   }
   // Top-level hooks.json is strict (only "description" + "hooks" allowed) — keep it minimal.
   if (createdHooksJson) hooksFile.description = hooksFile.description || "Codex Status Bar hooks (managed by the installer; safe to edit other entries)";
-  writeAtomic(hooksJsonPath, JSON.stringify(hooksFile, null, 2) + "\n");
 
   // Trust entries are derived from the FINAL file positions, so they are correct
   // wherever our handlers ended up (upserted, appended, or inside a mixed group).
@@ -367,9 +372,9 @@ function installInto(codexHome, prevEntry) {
   }
   const stripped = stripOurTrustEntries(toml, prevKeys.concat(stateEntries.map((e) => e.key)));
   if (stripped === null) {
-    return fail([`ERROR: ${configTomlPath} has the status-bar block begin marker but no end marker ("${BLOCK_END}").`,
-                 "Not touching it to avoid deleting config below the orphaned marker.",
-                 "Restore the end marker (or delete the managed block), then re-run this installer."]);
+    return fail([`ERROR: ${configTomlPath} has an invalid status-bar trust block (no end marker or misplaced markers).`,
+                 "Not touching it to avoid deleting config below a malformed marker.",
+                 "Restore the block markers (or delete the managed block), then re-run this installer."]);
   }
   toml = stripped.text;
   if (toml.length > 0 && !toml.endsWith("\n")) toml += "\n";
@@ -381,6 +386,9 @@ function installInto(codexHome, prevEntry) {
     if (stripped.disabled.has(e.key)) block.push("enabled = false");
   }
   block.push(BLOCK_END);
+  // Validate both files before changing either. A refused config must not leave
+  // new commands paired with the previous commands' trusted hashes.
+  writeAtomic(hooksJsonPath, JSON.stringify(hooksFile, null, 2) + "\n");
   writeAtomic(configTomlPath, toml + block.join("\n") + "\n");
 
   console.log("Installed status-bar hooks into", hooksJsonPath);
