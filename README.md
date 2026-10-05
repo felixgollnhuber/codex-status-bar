@@ -41,6 +41,8 @@ Everything is controlled from the menu:
 - **Completion sound:** an optional chime when a turn finishes — every turn, or only after turns of 1/5/15 min or longer.
 - **Version and update:** the menu shows your current version and tells you when an update is ready.
 
+![Orbit animation in Codex Blue, enlarged](assets/orbit-preview.gif)
+
 ### Where it works
 
 | Surface | Tracked? |
